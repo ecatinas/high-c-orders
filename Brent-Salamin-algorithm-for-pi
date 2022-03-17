@@ -1,1 +1,114 @@
-# code to be inserted by March 15, 2022
+"""
+version 22-03-17b
+computing asymptotic constants θ and Qₚ for the Brent-Salamin iterates
+"""
+
+function mₛ(x)       #short string for printing a BigFloat
+    chb = 9; che = 5
+    w = string(x)
+    if length(w)>15; w = w[1:chb] * "..." * w[end-che:end] end
+    return w
+end
+myprec = 10^5 #900000 #precision used
+setprecision(myprec)   #52 corresponds to the usual double precision
+println("############################","\n","epsBigFl=","\n",mₛ(eps(BigFloat)),"\n")
+x⃰ = BigFloat(pi)   ## x⃰ = pi+BigFloat(0)
+N = 17  # max no of iterations
+p = BigFloat(2.0)     #
+
+########################################################
+# Brent-Salamin GL (Brent 2021)
+a = zeros(BigFloat,N)
+b = zeros(BigFloat,N)
+c = zeros(BigFloat,N)
+Π = zeros(BigFloat,N)
+π = zeros(BigFloat,N)
+sₛ = zeros(BigFloat,N)
+
+a[1] = 1
+b[1] = 1/sqrt(BigFloat(2.0))
+sₛ[1] = 1/4
+
+for k =1:N-1
+    a[k+1] = (a[k]+b[k])/2
+    c[k+1] = a[k] - a[k+1]
+    π[k] = a[k+1]^2/sₛ[k]
+    Π[k] = a[k]^2/sₛ[k]
+    if k < N-1
+        b[k+1] = sqrt(a[k]*b[k])
+        sₛ[k+1] = sₛ[k] - 2^(k-1)*c[k+1]^2
+    end
+end
+x = Π          #we can also choose π
+c⃰ = 8x⃰       #0!
+θ⃰ = exp(-x⃰)  #exp(-2x⃰)
+
+########################################################
+sₖ, eₖ = zeros(BigFloat,N), zeros(BigFloat,N)
+# sₖ[2:N] = abs.(x[2:N] - x[1:N-1])   #when myprec is large, the vectorized form may run slower than the parallel version
+# eₖ = abs.(x⃰.-x)
+eₖ[1] = abs(x⃰.-x[1])
+Threads.@threads for i = 2:N
+    eₖ[i] = abs(x⃰.-x[i])
+    sₖ[i] = abs.(x[i] - x[i-1])
+end
+println("####################################################\n")
+println("=================================","\n","QL, QΛ","\n")
+QL = zeros(BigFloat,N)
+QΛ = zeros(BigFloat,N)
+QL[2] = log(eₖ[2])/log(eₖ[1])
+# println("k=1\n  QL=  ",mₛ(QL[2]))   #,"\n","|p-QL(2)|= ",abs(QL[2]-p),"\n")
+Threads.@threads for k=3:N
+    QL[k] = log(eₖ[k])/log(eₖ[k-1])
+    QΛ[k] = log(eₖ[k]/eₖ[k-1])/log(eₖ[k-1]/eₖ[k-2])
+end
+for k =N-5:N  println("k=",k-1,"  QL(k)=     ",mₛ(QL[k]),"   QΛ= ",mₛ(QΛ[k]))  end  #  println("|p-QL(k)|= ",abs(QL[k]-p))     # println("|p-QΛ(k)|= ",abs(QΛ[k]-p))
+
+println("\n\n\n=======================================","\n","QL′, QΛ′ (based on corrections - p not used/known)","\n")
+QL′ = zeros(BigFloat,N)
+QΛ′ = zeros(BigFloat,N)
+QL′[3] = log(sₖ[3])/log(sₖ[2])
+# println("k=2\n  QL′=   ",mₛ(QL′[3]))    #,"\n|p-QL′(k)|= ",abs(QL′[k]-p),"\n")
+Threads.@threads for k=4:N
+    QL′[k] = log(sₖ[k])/log(sₖ[k-1])
+    QΛ′[k] = log(sₖ[k]/sₖ[k-1])/log(sₖ[k-1]/sₖ[k-2])
+end
+for k = N-5:N  println("k=",k-1," QL′=  ",mₛ(QL′[k]),"    QΛ′=  ",mₛ(QΛ′[k]))  end  # println(, "   |p-QΛ′(k)|= ",mₛ(abs(QΛ′[k]-p)),"\n")," |p-QL′(k)|= ",mₛ(abs(QL′[k]-p)))
+
+println("############################","\n","Qₚ","\n")
+Qₚ = zeros(BigFloat,N)
+Qₚ′ = zeros(BigFloat,N)
+Threads.@threads for k=2:N
+    Qₚ[k] = eₖ[k]/eₖ[k-1]^p
+    Qₚ′[k] = sₖ[k]/sₖ[k-1]^p
+end
+#print values
+# for k = N-5:N  println("k=",k-1, "   Qₚ=",mₛ(Qₚ[k]),"   Qₚ′=",mₛ(Qₚ′[k]))  end
+#print errors
+for k = N-5:N  println("k=",k-1, "   |Qₚ-Qₚ⃰|=",mₛ(abs(Qₚ[k]-1/c⃰)),"   |Qₚ′-Qₚ⃰|=",mₛ(abs(Qₚ′[k]-1/c⃰)))  end
+
+println("############################","\n","ek","\n")
+for k = N-5:N  println("k=",k-1,"   ek=",mₛ(eₖ[k]))  end
+
+println("############################","\n","sk","\n")
+for k=N-5:N  println("k=",k-1,"   sk=",mₛ(sₖ[k])) end
+
+println("=============================","\n","θi","\n")
+θ = zeros(BigFloat,N)
+Threads.@threads for i = 2:N
+    # θ[i] = (eₖ[i])^(1/p^(i-1))      #computing θ by its definition gives poor results
+    θ[i] = (eₖ[i]*Qₚ[i])^(1/p^(i-1))  #improved formula
+end
+#print values
+# for i=N-5:N   println("i=",i-1,"  θ=",mₛ(θ[i])) end;  println("--")
+#print errors
+for i=N-5:N   println("i=",i-1," er θ=",mₛ(θ[i]-θ⃰)) end;  println("--")
+
+θ′, t̂ = zeros(BigFloat,N),  zeros(BigFloat,N)   #normally, the hat should be allowed on top of θ
+Threads.@threads for i = 2:N
+    θ′[i] = (sₖ[i])^(1/p^(i-2))
+    t̂[i] = (sₖ[i]*Qₚ′[i])^(1/p^(i-2))
+end
+for i=N-5:N   println("i=",i-1,"  er θ′=",mₛ(abs(θ′[i]-θ⃰))) end;  println("--")
+println("improved formula:")
+for i=N-5:N   println("i=",i-1,"  er θ′ₐ=",mₛ(abs(t̂[i]-θ⃰))) end;  println("--")
